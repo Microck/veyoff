@@ -33,9 +33,10 @@ jobs:
             
             ## usage
             
-            - `Ctrl+Shift+F` — freeze screen
+            - `Ctrl+Alt+F` — freeze screen (master sees a frozen frame)
+            - `Ctrl+Alt+Q` — quit and restore veyon config
+            - amber overlay = veyon app is open; red overlay = master is viewing your screen
             - edit `config/blacklist.txt` to hide specific windows (one keyword per line)
-            - `Ctrl+C` — exit and restore veyon config
             
             ## requirements
             

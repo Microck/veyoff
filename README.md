@@ -45,9 +45,11 @@ real UltraVNC (port 11250+session, redirected via registry)
 
 ## features
 
-1. **screen freeze** (`Ctrl+Shift+F`) — master sees a frozen frame while you keep working normally.
+1. **screen freeze** (`Ctrl+Alt+F`) — master sees a frozen frame while you keep working normally.
 
-2. **master presence overlay** — red banner warning when a master is actively connected. the banner is invisible to veyon's screen capture (rendered in a layered window excluded from DWM capture).
+2. **presence overlays** — two distinct warnings, both invisible to veyon's screen capture:
+   - **amber "VEYON ACTIVE"** — the teacher has the veyon master app open and connected to your machine, but isn't looking at your screen yet
+   - **red "MASTER VIEWING"** — the teacher is actively viewing your screen through the RFB proxy
 
 3. **selective window hiding** — windows matching keywords in `config/blacklist.txt` are blacked out from the master's view. add one keyword per line:
    ```
@@ -55,6 +57,8 @@ real UltraVNC (port 11250+session, redirected via registry)
    Chrome
    Signal
    ```
+
+4. **clean quit** (`Ctrl+Alt+Q`) — restores veyon config and exits.
 
 ---
 
@@ -86,7 +90,7 @@ veyoff automatically:
 - restarts `VeyonService` (brief 1-2s blip)
 - starts the RFB proxy and overlay
 
-on exit (`Ctrl+C`), it restores the original port and restarts the service.
+press `Ctrl+Alt+Q` to quit — veyoff restores the original port and restarts the service.
 
 ### custom blacklist
 

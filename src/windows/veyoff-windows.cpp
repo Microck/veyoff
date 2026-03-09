@@ -71,9 +71,13 @@ constexpr int kDefaultVncBasePort = 11200;
 constexpr int kPortOffset = 50;
 constexpr int kBannerHeight = 72;
 constexpr int kOverlayAlpha = 220;
-constexpr int kHotkeyId = 1;
+constexpr int kHotkeyFreezeId = 1;
+constexpr int kHotkeyQuitId = 2;
 constexpr UINT_PTR kPollTimerId = 1;
 constexpr int kPollTimerIntervalMs = 500;
+
+// Overlay presence levels (higher = more urgent)
+enum class PresenceLevel { kNone, kAppOpen, kViewing };
 
 // RFB protocol constants
 constexpr int kRfbVersionLength = 12;
@@ -468,8 +472,8 @@ struct SharedState {
     FrameBuffer frozenFrame;       // Captured at freeze time
     std::vector<std::wstring> blacklist;
     HWND overlayHwnd = nullptr;
-    bool masterPresent = false;
-    bool overlayVisible = false;
+    PresenceLevel presence = PresenceLevel::kNone;
+    PresenceLevel overlayShowing = PresenceLevel::kNone;
     DWORD sessionId = 0;
     std::filesystem::file_time_type blacklistWriteTime{};
     std::wstring blacklistPath;
@@ -645,6 +649,17 @@ struct ProxyRuntime {
 };
 
 static ProxyRuntime g_proxyRuntime;
+
+[[nodiscard]] int activeSessionCount() {
+    std::lock_guard lock(g_proxyRuntime.sessionsMtx);
+    // Prune dead sessions while we're here
+    g_proxyRuntime.sessions.erase(
+        std::remove_if(g_proxyRuntime.sessions.begin(),
+                       g_proxyRuntime.sessions.end(),
+                       [](const auto& s) { return !s->running.load(); }),
+        g_proxyRuntime.sessions.end());
+    return static_cast<int>(g_proxyRuntime.sessions.size());
+}
 
 bool readAndMaybeForward(SOCKET src, SOCKET dst, int len, bool forward) {
     std::vector<uint8_t> buf(std::min(len, 65536));
@@ -1158,25 +1173,40 @@ void proxyMain(SharedState& shared, int listenPort, int upstreamPort) {
 
 // ─── Overlay window ──────────────────────────────────────────────────────────
 
-void paintOverlay(HWND hwnd) {
+void paintOverlay(HWND hwnd, PresenceLevel level) {
     PAINTSTRUCT ps{};
     auto dc = BeginPaint(hwnd, &ps);
     RECT rc{};
     GetClientRect(hwnd, &rc);
-    auto bgBrush = CreateSolidBrush(RGB(180, 0, 0));
+
+    COLORREF bgColor, borderColor, textColor;
+    const wchar_t* text;
+    if (level == PresenceLevel::kViewing) {
+        bgColor = RGB(180, 0, 0);       // red — actively viewing your screen
+        borderColor = RGB(255, 255, 255);
+        textColor = RGB(255, 255, 255);
+        text = L"MASTER VIEWING";
+    } else {
+        bgColor = RGB(200, 150, 0);     // amber — veyon app is open
+        borderColor = RGB(60, 40, 0);
+        textColor = RGB(40, 20, 0);
+        text = L"VEYON ACTIVE";
+    }
+
+    auto bgBrush = CreateSolidBrush(bgColor);
     FillRect(dc, &rc, bgBrush);
     DeleteObject(bgBrush);
-    auto borderBrush = CreateSolidBrush(RGB(255, 255, 255));
-    FrameRect(dc, &rc, borderBrush);
-    DeleteObject(borderBrush);
+    auto bBrush = CreateSolidBrush(borderColor);
+    FrameRect(dc, &rc, bBrush);
+    DeleteObject(bBrush);
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, RGB(255, 255, 255));
+    SetTextColor(dc, textColor);
     auto font = CreateFontW(-28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                             CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     auto oldFont = SelectObject(dc, font);
-    DrawTextW(dc, L"MASTER VIEWING", -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    DrawTextW(dc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     SelectObject(dc, oldFont);
     DeleteObject(font);
     EndPaint(hwnd, &ps);
@@ -1192,9 +1222,9 @@ void positionOverlay(HWND hwnd) {
 
 void updateOverlay(SharedState& shared) {
     std::lock_guard lock(shared.mtx);
-    if (shared.masterPresent == shared.overlayVisible) return;
-    shared.overlayVisible = shared.masterPresent;
-    if (shared.overlayVisible) {
+    if (shared.presence == shared.overlayShowing) return;
+    shared.overlayShowing = shared.presence;
+    if (shared.overlayShowing != PresenceLevel::kNone) {
         positionOverlay(shared.overlayHwnd);
         ShowWindow(shared.overlayHwnd, SW_SHOWNOACTIVATE);
         InvalidateRect(shared.overlayHwnd, nullptr, TRUE);
@@ -1279,8 +1309,22 @@ bool detectMasterConnection(DWORD sessionId) {
 
 // Timer callback for polling master presence and reloading blacklist
 void onPollTimer(SharedState& shared) {
-    // Master detection
-    shared.masterPresent = detectMasterConnection(shared.sessionId);
+    // Determine presence level:
+    //   kViewing — active RFB proxy session (master is seeing your screen)
+    //   kAppOpen — TCP connection on veyon port (master app is running) but
+    //              not actively viewing this specific machine
+    //   kNone    — no connection at all
+    bool tcpConnected = detectMasterConnection(shared.sessionId);
+    bool viewing = activeSessionCount() > 0;
+    {
+        std::lock_guard lock(shared.mtx);
+        if (viewing)
+            shared.presence = PresenceLevel::kViewing;
+        else if (tcpConnected)
+            shared.presence = PresenceLevel::kAppOpen;
+        else
+            shared.presence = PresenceLevel::kNone;
+    }
     updateOverlay(shared);
 
     // Blacklist reload
@@ -1340,7 +1384,8 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
     switch (msg) {
     case WM_CREATE:
-        RegisterHotKey(hwnd, kHotkeyId, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, 'F');
+        RegisterHotKey(hwnd, kHotkeyFreezeId, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'F');
+        RegisterHotKey(hwnd, kHotkeyQuitId, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'Q');
         SetTimer(hwnd, kPollTimerId, kPollTimerIntervalMs, nullptr);
         SetLayeredWindowAttributes(hwnd, 0, static_cast<BYTE>(kOverlayAlpha), LWA_ALPHA);
         trySetWindowDisplayAffinity(hwnd);
@@ -1349,7 +1394,8 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if (shared && wParam == kPollTimerId) onPollTimer(*shared);
         return 0;
     case WM_HOTKEY:
-        if (shared && wParam == kHotkeyId) toggleFreeze(*shared);
+        if (shared && wParam == kHotkeyFreezeId) toggleFreeze(*shared);
+        if (wParam == kHotkeyQuitId) PostMessageW(hwnd, WM_CLOSE, 0, 0);
         return 0;
     case WM_DISPLAYCHANGE:
         if (shared && shared->overlayVisible) {
@@ -1357,12 +1403,19 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             InvalidateRect(hwnd, nullptr, TRUE);
         }
         return 0;
-    case WM_PAINT:
-        paintOverlay(hwnd);
+    case WM_PAINT: {
+        PresenceLevel level = PresenceLevel::kAppOpen;
+        if (shared) {
+            std::lock_guard lock(shared->mtx);
+            level = shared->overlayShowing;
+        }
+        paintOverlay(hwnd, level);
         return 0;
+    }
     case WM_DESTROY:
         KillTimer(hwnd, kPollTimerId);
-        UnregisterHotKey(hwnd, kHotkeyId);
+        UnregisterHotKey(hwnd, kHotkeyFreezeId);
+        UnregisterHotKey(hwnd, kHotkeyQuitId);
         PostQuitMessage(0);
         return 0;
     default:
@@ -1527,7 +1580,7 @@ int wmain(int argc, wchar_t* argv[]) {
         proxyMain(shared, listenPort, upstreamPort);
     });
 
-    std::wcout << L"Veyoff active. Ctrl+Shift+F to freeze. Ctrl+C to exit." << std::endl;
+    std::wcout << L"Veyoff active. Ctrl+Alt+F to freeze. Ctrl+Alt+Q to quit." << std::endl;
 
     // Step 7: Run Win32 message loop (for overlay + hotkey)
     MSG message{};
