@@ -1,12 +1,21 @@
-<picture>
-  <img alt="veyoff" src="docs/brand/logo.svg" width="240">
-</picture>
+<div align="center">
+  <img src="docs/brand/logo.svg" width="150" alt="veyoff logo" />
+  
+  <h1>veyoff</h1>
+  
+  <p><strong>RFB man-in-the-middle proxy that controls what the Veyon master sees on a student machine</strong></p>
 
-**an RFB man-in-the-middle proxy that controls what the Veyon master sees on a student machine.**
+  <p>
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="license" />
+    </a>
+    <img src="https://img.shields.io/badge/platform-windows%2010%2B-0078D6.svg?style=flat-square" alt="windows" />
+    <img src="https://img.shields.io/badge/build-cmake-064F8C.svg?style=flat-square" alt="cmake" />
+    <img src="https://img.shields.io/badge/lang-c%2B%2B20-00599C.svg?style=flat-square" alt="c++" />
+  </p>
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![C++20](https://img.shields.io/badge/c%2B%2B-20-blue.svg)]()
-[![Windows](https://img.shields.io/badge/platform-windows%2010%2B-0078D6.svg)]()
+  <br />
+</div>
 
 veyoff sits between Veyon's internal proxy and the UltraVNC screen capture engine on the local machine. it forwards framebuffer data transparently in normal mode, and intercepts it when freeze or window hiding is active. the teacher sees nothing unusual — just a brief 1-2s connection blip during setup.
 
