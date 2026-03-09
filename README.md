@@ -3,7 +3,7 @@
   
   <h1>veyoff</h1>
   
-  <p><strong>RFB man-in-the-middle proxy that controls what the Veyon master sees on a student machine</strong></p>
+  <p><strong>RFB man-in-the-middle proxy that controls what the Veyon master sees</strong></p>
 
   <p>
     <a href="LICENSE">
@@ -17,7 +17,7 @@
   <br />
 </div>
 
-veyoff sits between Veyon's internal proxy and the UltraVNC screen capture engine on the local machine. it forwards framebuffer data transparently in normal mode, and intercepts it when freeze or window hiding is active. the teacher sees nothing unusual — just a brief 1-2s connection blip during setup.
+veyoff sits between Veyon's internal proxy and the UltraVNC screen capture engine on the local machine. it forwards framebuffer data transparently in normal mode, and intercepts it when freeze or window hiding is active. the teacher sees nothing unusual; just a brief 1-2s connection blip during setup. if you're my teacher seeing this, hi please dont snitch.
 
 ---
 
