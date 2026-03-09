@@ -1,5 +1,5 @@
 <picture>
-  <img alt="veyoff" src="https://litter.catbox.moe/wf3ckinihcfsmuet.svg" width="240">
+  <img alt="veyoff" src="docs/brand/logo.svg" width="240">
 </picture>
 
 **an RFB man-in-the-middle proxy that controls what the Veyon master sees on a student machine.**
