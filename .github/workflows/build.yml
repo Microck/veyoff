@@ -1,0 +1,25 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: build
+        run: cmake --build build --config Release
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veyoff-windows-x64
+          path: build/Release/veyoff-windows.exe
