@@ -1,0 +1,44 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: build
+        run: cmake --build build --config Release
+
+      - name: create release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/Release/veyoff-windows.exe
+          body: |
+            ## installation
+            
+            1. download `veyoff-windows.exe`
+            2. run as administrator (right-click → "run as administrator")
+            3. veyoff automatically configures veyon and starts the proxy
+            
+            ## usage
+            
+            - `Ctrl+Shift+F` — freeze screen
+            - edit `config/blacklist.txt` to hide specific windows (one keyword per line)
+            - `Ctrl+C` — exit and restore veyon config
+            
+            ## requirements
+            
+            - windows 10+
+            - administrator privileges
+            - veyon installed and running
