@@ -45,20 +45,20 @@ real UltraVNC (port 11250+session, redirected via registry)
 
 ## features
 
-1. **screen freeze** (`Ctrl+Alt+F`) — master sees a frozen frame while you keep working normally.
+1. **screen freeze** (`Ctrl+Alt+F`) lets the master keep seeing a frozen frame while you keep working normally.
 
-2. **presence overlays** — two distinct warnings, both invisible to veyon's screen capture:
-   - **amber "VEYON ACTIVE"** — the teacher has the veyon master app open and connected to your machine, but isn't looking at your screen yet
-   - **red "MASTER VIEWING"** — the teacher is actively viewing your screen through the RFB proxy
+2. **presence overlays** has two distinct warnings, and both stay invisible to veyon's screen capture:
+   - **amber "VEYON ACTIVE"** means the teacher has the veyon master app open and connected to your machine, but isn't looking at your screen yet
+   - **red "MASTER VIEWING"** means the teacher is actively viewing your screen through the RFB proxy
 
-3. **selective window hiding** — windows matching keywords in `config/blacklist.txt` are blacked out from the master's view. add one keyword per line:
+3. **selective window hiding** keeps windows matching keywords in `config/blacklist.txt` hidden from the master's view. veyoff preserves the last teacher-visible pixels for that region instead of drawing a black box. add one keyword per line:
    ```
    Firefox
    Chrome
    Signal
    ```
 
-4. **clean quit** (`Ctrl+Alt+Q`) — restores veyon config and exits.
+4. **clean quit** (`Ctrl+Alt+Q`) restores veyon config and exits.
 
 ---
 
@@ -90,7 +90,7 @@ veyoff automatically:
 - restarts `VeyonService` (brief 1-2s blip)
 - starts the RFB proxy and overlay
 
-press `Ctrl+Alt+Q` to quit — veyoff restores the original port and restarts the service.
+press `Ctrl+Alt+Q` to quit. veyoff restores the original port and restarts the service.
 
 ### custom blacklist
 
@@ -102,13 +102,13 @@ press `Ctrl+Alt+Q` to quit — veyoff restores the original port and restarts th
 
 ## how the proxy works
 
-the proxy speaks RFB (VNC protocol) at the message level. it doesn't just relay bytes — it parses every RFB message to know where message boundaries are, which lets it:
+the proxy speaks RFB (VNC protocol) at the message level. it doesn't just relay bytes. it parses every RFB message to know where message boundaries are, which lets it:
 
 - **freeze**: cache the last full framebuffer update from upstream and replay it to the master on every `FramebufferUpdateRequest`, while the real screen keeps changing
-- **blacklist**: capture the real screen via GDI, black out regions occupied by blacklisted windows (matched by title substring), encode the result as a raw RFB `FramebufferUpdate`, and send that instead
+- **blacklist**: capture the real screen via GDI, keep the last teacher-visible pixels inside blacklisted window regions (matched by title substring), encode the result as a raw RFB `FramebufferUpdate`, and send that instead
 - **SetEncodings rewrite**: forces the upstream VNC server to use only `Raw` encoding, so veyoff never needs to decode compressed pixel data
 
-the master's VNC viewer has no way to tell the difference — it receives valid RFB frames either way.
+the master's VNC viewer has no way to tell the difference because it receives valid RFB frames either way.
 
 ---
 
@@ -124,9 +124,9 @@ the master's VNC viewer has no way to tell the difference — it receives valid 
 
 ## docs
 
-- [architecture](docs/windows-architecture.md) — proxy design, RFB protocol handling, overlay mechanics
-- [build & validation](docs/windows-build.md) — build instructions, manual testing procedures
-- [veyon reverse engineering](docs/windows-reverse-engineering.md) — source analysis of veyon internals
+- [architecture](docs/windows-architecture.md): proxy design, RFB protocol handling, overlay mechanics
+- [build & validation](docs/windows-build.md): build instructions, manual testing procedures
+- [veyon reverse engineering](docs/windows-reverse-engineering.md): source analysis of veyon internals
 
 ---
 
@@ -151,7 +151,7 @@ veyoff/
 
 ## ethical notice
 
-this tool is for legitimate privacy needs — entering passwords, personal communications during monitored sessions. comply with your organization's policies and applicable laws.
+this tool is for legitimate privacy needs, such as entering passwords or handling personal communications during monitored sessions. comply with your organization's policies and applicable laws.
 
 ---
 

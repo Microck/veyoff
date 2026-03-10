@@ -46,7 +46,7 @@ Or with a custom blacklist path:
 4. Creates the overlay window (hidden until master connects)
 5. Prints status to console
 
-### What happens on exit (Ctrl+C)
+### What happens on exit (`Ctrl+Alt+Q`)
 
 1. Restores the original VNC port in registry
 2. Restarts `VeyonService` to apply the restoration
@@ -58,9 +58,9 @@ Or with a custom blacklist path:
 
 1. Start `veyoff-windows.exe` as admin
 2. Have Veyon running (master connects as usual)
-3. Press `Ctrl+Shift+F` -- console prints `FROZEN`
+3. Press `Ctrl+Alt+F` -- console prints `FROZEN`
 4. Change something on screen -- master should still see the old frame
-5. Press `Ctrl+Shift+F` again -- console prints `LIVE`, master sees real desktop
+5. Press `Ctrl+Alt+F` again -- console prints `LIVE`, master sees real desktop
 
 ### 2. Master Presence Overlay
 
@@ -73,7 +73,8 @@ Or with a custom blacklist path:
 
 1. Add a keyword to `config/blacklist.txt` (e.g., `Firefox`)
 2. Open a window matching that keyword
-3. The master sees that window's area blacked out
+3. The master keeps seeing the previous clean pixels in that window's area,
+   so the blacklisted app stays hidden instead of turning into a black box
 4. The blacklist file is hot-reloaded (edit while running)
 
 ## Troubleshooting

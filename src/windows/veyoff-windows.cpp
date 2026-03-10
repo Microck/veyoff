@@ -7,7 +7,8 @@
 //   VEYOFF RFB PROXY (binds port 11200+session, the original VNC port)
 //       forwards RFB traffic transparently, except:
 //       - freeze mode: serves a cached framebuffer instead of real updates
-//       - blacklist mode: captures screen with blacklisted windows blacked out
+//       - blacklist mode: captures screen while keeping blacklisted windows
+//         hidden from the master's view
 //       connects upstream to:
 //       ↓
 //   Real UltraVNC (binds port 11200+50+session, redirected via registry)
@@ -278,8 +279,7 @@ struct FrameBuffer {
     bool valid() const { return width > 0 && height > 0 && !pixels.empty(); }
 };
 
-bool captureScreen(FrameBuffer& fb, HWND overlayHwnd,
-                   const std::vector<std::wstring>& blacklist) {
+bool captureScreen(FrameBuffer& fb) {
     auto originX = GetSystemMetrics(SM_XVIRTUALSCREEN);
     auto originY = GetSystemMetrics(SM_YVIRTUALSCREEN);
     auto w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
@@ -311,19 +311,6 @@ bool captureScreen(FrameBuffer& fb, HWND overlayHwnd,
     bool ok = BitBlt(memDc, 0, 0, w, h, screenDc, originX, originY,
                      SRCCOPY | CAPTUREBLT) != 0;
     if (ok) {
-        // Black out blacklisted windows
-        auto masks = enumerateBlacklistedWindows(overlayHwnd, blacklist);
-        auto blackBrush = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
-        for (auto& m : masks) {
-            RECT adj{m.rect.left - originX, m.rect.top - originY,
-                     m.rect.right - originX, m.rect.bottom - originY};
-            adj.left = std::max(0L, adj.left);
-            adj.top = std::max(0L, adj.top);
-            adj.right = std::min(static_cast<LONG>(w), adj.right);
-            adj.bottom = std::min(static_cast<LONG>(h), adj.bottom);
-            if (adj.right > adj.left && adj.bottom > adj.top)
-                FillRect(memDc, &adj, blackBrush);
-        }
         auto byteCount = static_cast<size_t>(w) * h * 4;
         fb.width = w;
         fb.height = h;
@@ -336,6 +323,46 @@ bool captureScreen(FrameBuffer& fb, HWND overlayHwnd,
     DeleteDC(memDc);
     ReleaseDC(nullptr, screenDc);
     return ok;
+}
+
+[[nodiscard]] std::vector<RECT> buildMaskRects(HWND overlayHwnd,
+                                               const std::vector<std::wstring>& blacklist,
+                                               int width,
+                                               int height) {
+    std::vector<RECT> rects;
+    if (blacklist.empty() || width <= 0 || height <= 0) return rects;
+
+    auto originX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    auto originY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    auto masks = enumerateBlacklistedWindows(overlayHwnd, blacklist);
+    rects.reserve(masks.size());
+    for (const auto& m : masks) {
+        RECT adj{m.rect.left - originX, m.rect.top - originY,
+                 m.rect.right - originX, m.rect.bottom - originY};
+        adj.left = std::max(0L, adj.left);
+        adj.top = std::max(0L, adj.top);
+        adj.right = std::min(static_cast<LONG>(width), adj.right);
+        adj.bottom = std::min(static_cast<LONG>(height), adj.bottom);
+        if (adj.right > adj.left && adj.bottom > adj.top) rects.push_back(adj);
+    }
+    return rects;
+}
+
+void preserveRectsFromPreviousFrame(FrameBuffer& current,
+                                    const FrameBuffer& previous,
+                                    const std::vector<RECT>& rects) {
+    if (!current.valid() || !previous.valid()) return;
+    if (current.width != previous.width || current.height != previous.height) return;
+
+    for (const auto& rect : rects) {
+        for (LONG y = rect.top; y < rect.bottom; ++y) {
+            size_t start = (static_cast<size_t>(y) * current.width + rect.left) * 4;
+            size_t bytes = static_cast<size_t>(rect.right - rect.left) * 4;
+            std::memcpy(current.pixels.data() + start,
+                        previous.pixels.data() + start,
+                        bytes);
+        }
+    }
 }
 
 // ─── Veyon registry & service management ─────────────────────────────────────
@@ -470,6 +497,7 @@ struct SharedState {
     std::mutex mtx;
     bool frozen = false;
     FrameBuffer frozenFrame;       // Captured at freeze time
+    FrameBuffer teacherVisibleFrame; // What the master should keep seeing
     std::vector<std::wstring> blacklist;
     HWND overlayHwnd = nullptr;
     PresenceLevel presence = PresenceLevel::kNone;
@@ -883,10 +911,15 @@ bool proxyHandshake(ProxySession& session) {
     return true;
 }
 
-// Get the current frame to serve (frozen or fresh capture with blacklist).
+// Get the current frame to serve.
+//
+// When blacklist matches exist, we preserve the last teacher-visible pixels
+// for those rectangles instead of painting them black. That makes the window
+// stay hidden from the master's view rather than replaced with a black box.
 FrameBuffer getInterceptFrame(ProxySession& session) {
     HWND overlayHwnd = nullptr;
     std::vector<std::wstring> blacklist;
+    FrameBuffer previousTeacherVisible;
     {
         std::lock_guard lock(session.shared->mtx);
         if (session.shared->frozen && session.shared->frozenFrame.valid()) {
@@ -894,10 +927,22 @@ FrameBuffer getInterceptFrame(ProxySession& session) {
         }
         overlayHwnd = session.shared->overlayHwnd;
         blacklist = session.shared->blacklist;
+        previousTeacherVisible = session.shared->teacherVisibleFrame;
     }
 
     FrameBuffer fb;
-    captureScreen(fb, overlayHwnd, blacklist);
+    if (!captureScreen(fb) || !fb.valid()) return {};
+
+    auto maskRects = buildMaskRects(overlayHwnd, blacklist, fb.width, fb.height);
+    if (!maskRects.empty()) {
+        preserveRectsFromPreviousFrame(fb, previousTeacherVisible, maskRects);
+    }
+
+    {
+        std::lock_guard lock(session.shared->mtx);
+        session.shared->teacherVisibleFrame = fb;
+    }
+
     return fb;
 }
 
@@ -1358,16 +1403,28 @@ void toggleFreeze(SharedState& shared) {
         blacklist = shared.blacklist;
     }
 
-    FrameBuffer frozenFrame;
-    if (!captureScreen(frozenFrame, overlayHwnd, blacklist) || !frozenFrame.valid()) {
+    FrameBuffer capturedFrame;
+    if (!captureScreen(capturedFrame) || !capturedFrame.valid()) {
         std::wcerr << L"Failed to capture frozen frame; staying live" << std::endl;
         return;
+    }
+
+    FrameBuffer previousTeacherVisible;
+    {
+        std::lock_guard lock(shared.mtx);
+        previousTeacherVisible = shared.teacherVisibleFrame;
+    }
+    auto maskRects = buildMaskRects(overlayHwnd, blacklist,
+                                    capturedFrame.width, capturedFrame.height);
+    if (!maskRects.empty()) {
+        preserveRectsFromPreviousFrame(capturedFrame, previousTeacherVisible, maskRects);
     }
 
     {
         std::lock_guard lock(shared.mtx);
         shared.frozen = true;
-        shared.frozenFrame = std::move(frozenFrame);
+        shared.frozenFrame = capturedFrame;
+        shared.teacherVisibleFrame = std::move(capturedFrame);
     }
     std::wcout << L"FROZEN" << std::endl;
 }

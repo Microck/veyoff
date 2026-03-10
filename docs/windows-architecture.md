@@ -7,10 +7,10 @@ that intercepts what Veyon's master sees on the student machine.
 
 A single Windows-native executable that provides:
 
-1. **Screen Freeze** (`Ctrl+Shift+F`) -- master sees a frozen frame while the
+1. **Screen Freeze** (`Ctrl+Alt+F`) -- master sees a frozen frame while the
    user continues working
 2. **Master Presence Overlay** -- red banner warning when a master is connected
-3. **Selective Window Hiding** -- blacklisted windows are blacked out from
+3. **Selective Window Hiding** -- blacklisted windows stay hidden from
    what the master sees
 
 ## Architecture: RFB Man-in-the-Middle Proxy
@@ -52,7 +52,7 @@ Real UltraVNC (port 11250+session = redirected via registry)
 2. Changes it to `originalPort + 50` (e.g., 11200 -> 11250)
 3. Restarts `VeyonService` (1-2 second blip, looks like normal network hiccup)
 4. Binds the proxy on the original port (11200+session)
-5. On exit (or Ctrl+C), restores the original port and restarts the service
+5. On exit (or `Ctrl+Alt+Q`), restores the original port and restarts the service
 
 The external Veyon server port (11100) is never changed. The master sees no
 configuration difference -- just a brief connection drop during restart.
@@ -67,7 +67,7 @@ the ServerInit message to learn framebuffer dimensions and pixel format.
 **Normal mode:** All traffic is forwarded transparently. The master sees the
 real desktop.
 
-**Freeze mode:** When `Ctrl+Shift+F` is pressed:
+**Freeze mode:** When `Ctrl+Alt+F` is pressed:
 - `FramebufferUpdateRequest` messages from the client are intercepted
 - Instead of forwarding to UltraVNC, the proxy responds with a Raw-encoded
   full frame captured at freeze time
@@ -77,13 +77,14 @@ real desktop.
 
 **Blacklist mode:** When `config/blacklist.txt` contains entries:
 - The proxy captures the screen itself using GDI `BitBlt`
-- Blacklisted windows are blacked out in the captured frame
+- Blacklisted windows keep their last teacher-visible pixels in the captured frame
 - The modified frame is served to the client instead of UltraVNC's output
 
 ## Hotkey Model
 
-Uses `RegisterHotKey` with `MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT | VK_F`.
-This is simpler and less detectable than a low-level keyboard hook.
+Uses `RegisterHotKey` with `Ctrl+Alt+F` for freeze and `Ctrl+Alt+Q` for quit.
+This is simpler and less detectable than a low-level keyboard hook, and it
+avoids conflicts with common `Ctrl+Shift+F` shortcuts.
 
 ## Master Presence Detection
 
@@ -104,7 +105,8 @@ windows with `WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED` AND
 ## Blacklist
 
 Plain text file (`config/blacklist.txt`), one keyword per line. Window titles
-containing any keyword (case-insensitive) are blacked out. The file is
+containing any keyword (case-insensitive) stay hidden from the master by
+preserving the last teacher-visible pixels in that region. The file is
 hot-reloaded when modified.
 
 ## Build
