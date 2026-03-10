@@ -15,19 +15,23 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: configure
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DVEYOFF_VERSION=${{ github.ref_name }}
 
       - name: build
         run: cmake --build build --config Release
 
+      - name: prepare versioned asset
+        shell: pwsh
+        run: Copy-Item "build/Release/veyoff-windows.exe" "build/Release/veyoff-windows-${{ github.ref_name }}.exe"
+
       - name: create release
         uses: softprops/action-gh-release@v1
         with:
-          files: build/Release/veyoff-windows.exe
+          files: build/Release/veyoff-windows-${{ github.ref_name }}.exe
           body: |
             ## installation
             
-            1. download `veyoff-windows.exe`
+            1. download `veyoff-windows-${{ github.ref_name }}.exe`
             2. run as administrator (right-click → "run as administrator")
             3. veyoff automatically configures veyon and starts the proxy
             
