@@ -1398,7 +1398,7 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if (wParam == kHotkeyQuitId) PostMessageW(hwnd, WM_CLOSE, 0, 0);
         return 0;
     case WM_DISPLAYCHANGE:
-        if (shared && shared->overlayVisible) {
+        if (shared && shared->overlayShowing != PresenceLevel::kNone) {
             positionOverlay(hwnd);
             InvalidateRect(hwnd, nullptr, TRUE);
         }
