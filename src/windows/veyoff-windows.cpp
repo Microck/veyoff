@@ -89,6 +89,8 @@ constexpr UINT kTrayMenuToggleFreeze = 4001;
 constexpr UINT kTrayMenuStatus = 4002;
 constexpr UINT kTrayMenuSelfDestruct = 4003;
 constexpr UINT kTrayMenuQuit = 4004;
+constexpr UINT kTrayMenuEditBlacklist = 4005;
+constexpr UINT kTrayMenuReloadConfig = 4006;
 
 // Panic button: must press Ctrl+Alt+X this many times within the time window
 constexpr int kPanicPressesRequired = 5;
@@ -1365,6 +1367,9 @@ void showTrayMenu(HWND hwnd, SharedState& shared) {
     AppendMenuW(menu, MF_STRING, kTrayMenuToggleFreeze,
                 frozen ? L"Unfreeze Screen" : L"Freeze Screen");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kTrayMenuEditBlacklist, L"Edit Blacklist...");
+    AppendMenuW(menu, MF_STRING, kTrayMenuReloadConfig, L"Reload Config");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kTrayMenuSelfDestruct, L"Self-Destruct");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kTrayMenuQuit, L"Quit");
@@ -1754,6 +1759,30 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (shared) {
                 toggleFreeze(*shared);
                 updateTrayIcon(*shared);
+            }
+            break;
+        case kTrayMenuEditBlacklist:
+            if (shared && !shared->blacklistPath.empty()) {
+                // Create the file if it doesn't exist so Notepad doesn't complain
+                if (!std::filesystem::exists(shared->blacklistPath)) {
+                    auto parent = std::filesystem::path(shared->blacklistPath).parent_path();
+                    std::error_code ec;
+                    std::filesystem::create_directories(parent, ec);
+                    std::ofstream touch{std::filesystem::path(shared->blacklistPath)};
+                }
+                ShellExecuteW(nullptr, L"open", L"notepad.exe",
+                              shared->blacklistPath.c_str(), nullptr, SW_SHOW);
+            }
+            break;
+        case kTrayMenuReloadConfig:
+            if (shared && !shared->blacklistPath.empty()) {
+                shared->blacklist = loadBlacklist(shared->blacklistPath);
+                if (std::filesystem::exists(shared->blacklistPath))
+                    shared->blacklistWriteTime =
+                        std::filesystem::last_write_time(shared->blacklistPath);
+                std::wcout << L"Blacklist reloaded ("
+                          << shared->blacklist.size()
+                          << L" entries)" << std::endl;
             }
             break;
         case kTrayMenuSelfDestruct:

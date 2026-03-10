@@ -51,14 +51,14 @@ real UltraVNC (port 11250+session, redirected via registry)
    - **amber "VEYON ACTIVE"** means the teacher has the veyon master app open and connected to your machine, but isn't looking at your screen yet
    - **red "MASTER VIEWING"** means the teacher is actively viewing your screen through the RFB proxy
 
-3. **selective window hiding** keeps windows matching keywords in `config/blacklist.txt` hidden from the master's view. veyoff preserves the last teacher-visible pixels for that region instead of drawing a black box. add one keyword per line:
+3. **selective window hiding** keeps windows matching keywords in `config/blacklist.txt` hidden from the master's view. veyoff preserves the last teacher-visible pixels for that region instead of drawing a black box. edit the blacklist from the tray menu or manually, one keyword per line:
    ```
    Firefox
    Chrome
    Signal
    ```
 
-4. **system tray** shows a color-coded icon in the notification area. right-click for the menu: toggle freeze, view status, self-destruct, or quit. the icon color reflects the current state:
+4. **system tray** shows a color-coded icon in the notification area. right-click for the menu: toggle freeze, edit blacklist, reload config, self-destruct, or quit. the icon color reflects the current state:
    - **green** = idle/live
    - **blue** = screen frozen
    - **amber** = veyon active

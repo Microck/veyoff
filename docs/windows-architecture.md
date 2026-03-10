@@ -99,8 +99,8 @@ counts repeated presses.
 ## System Tray
 
 A notification area icon provides a right-click context menu (toggle freeze,
-status display, self-destruct, quit). The icon is a dynamically generated
-16x16 colored square:
+edit blacklist, reload config, status display, self-destruct, quit). The icon
+is a dynamically generated 16x16 colored square:
 
 | Color | State |
 |-------|-------|
