@@ -57,6 +57,7 @@ target_link_libraries(veyoff-windows PRIVATE
   dwmapi
   gdi32
   iphlpapi
+  shell32
   user32
   ws2_32
 )

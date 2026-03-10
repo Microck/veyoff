@@ -82,9 +82,53 @@ real desktop.
 
 ## Hotkey Model
 
-Uses `RegisterHotKey` with `Ctrl+Alt+F` for freeze and `Ctrl+Alt+Q` for quit.
-This is simpler and less detectable than a low-level keyboard hook, and it
-avoids conflicts with common `Ctrl+Shift+F` shortcuts.
+Uses `RegisterHotKey` for all hotkeys:
+
+| Hotkey | Action |
+|--------|--------|
+| `Ctrl+Alt+F` | Toggle screen freeze |
+| `Ctrl+Alt+Q` | Clean quit (restore Veyon, exit) |
+| `Ctrl+Alt+X` (x5 in 2s) | Self-destruct panic button |
+
+`Ctrl+Alt+X` uses a multi-press trigger: 5 presses within 2 seconds. Each press
+is timestamped and old presses outside the window are discarded. This prevents
+accidental triggers while staying fast in a real emergency. Note: unlike the
+other hotkeys, `Ctrl+Alt+X` does not use `MOD_NOREPEAT` so holding the key
+counts repeated presses.
+
+## System Tray
+
+A notification area icon provides a right-click context menu (toggle freeze,
+status display, self-destruct, quit). The icon is a dynamically generated
+16x16 colored square:
+
+| Color | State |
+|-------|-------|
+| Green | Idle / live |
+| Blue | Screen frozen |
+| Amber | Veyon app connected |
+| Red | Master actively viewing |
+
+The icon and tooltip update on every poll cycle (500ms). The tray icon is
+created with `Shell_NotifyIconW` and removed cleanly on exit or self-destruct.
+
+## Self-Destruct (Nuclear)
+
+The self-destruct sequence performs a complete trace removal:
+
+1. **Remove tray icon** immediately (visual cleanup)
+2. **Restore Veyon registry** and restart the service (normal cleanup)
+3. **Clear Windows event logs** (Application, System, Security channels via
+   `ClearEventLogW`)
+4. **Delete prefetch entries** matching "veyoff" in `%WINDIR%\Prefetch`
+5. **Delete config files** (blacklist.txt, config directory)
+6. **Schedule self-deletion**: writes a hidden batch script to `%TEMP%` that
+   polls `tasklist` for the veyoff PID, waits for exit, then `rd /s /q` the
+   entire exe directory and deletes the batch script itself
+7. **Exit immediately** via `ExitProcess(0)`
+
+The batch-based self-deletion is necessary because a running exe cannot delete
+itself on Windows. The script runs as a detached, hidden `cmd.exe` process.
 
 ## Master Presence Detection
 
@@ -117,7 +161,7 @@ cmake --build build --config Release
 ```
 
 Requires: Windows SDK, MSVC, CMake 3.21+.
-Links: ws2_32, advapi32, dwmapi, gdi32, iphlpapi, user32.
+Links: ws2_32, advapi32, dwmapi, gdi32, iphlpapi, shell32, user32.
 
 ## Registry Keys
 

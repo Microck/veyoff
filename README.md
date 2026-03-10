@@ -58,7 +58,22 @@ real UltraVNC (port 11250+session, redirected via registry)
    Signal
    ```
 
-4. **clean quit** (`Ctrl+Alt+Q`) restores veyon config and exits.
+4. **system tray** shows a color-coded icon in the notification area. right-click for the menu: toggle freeze, view status, self-destruct, or quit. the icon color reflects the current state:
+   - **green** = idle/live
+   - **blue** = screen frozen
+   - **amber** = veyon active
+   - **red** = master viewing
+
+5. **self-destruct** (`Ctrl+Alt+X` pressed 5 times within 2 seconds) is the panic button. it:
+   - restores veyon's registry and restarts the service
+   - clears windows event logs (Application, System, Security)
+   - deletes prefetch entries matching veyoff
+   - schedules deletion of the exe and its entire directory after the process exits
+   - leaves no trace on disk
+
+   also available from the tray menu under "Self-Destruct".
+
+6. **clean quit** (`Ctrl+Alt+Q`) restores veyon config and exits normally.
 
 ---
 
@@ -90,7 +105,7 @@ veyoff automatically:
 - restarts `VeyonService` (brief 1-2s blip)
 - starts the RFB proxy and overlay
 
-press `Ctrl+Alt+Q` to quit. veyoff restores the original port and restarts the service.
+press `Ctrl+Alt+Q` to quit. veyoff restores the original port and restarts the service. right-click the tray icon for additional options.
 
 ### custom blacklist
 
@@ -135,7 +150,7 @@ the master's VNC viewer has no way to tell the difference because it receives va
 ```
 veyoff/
 ├── src/windows/
-│   └── veyoff-windows.cpp    # single-file implementation (~1500 lines)
+│   └── veyoff-windows.cpp    # single-file implementation (~2000 lines)
 ├── config/
 │   └── blacklist.txt          # window title keywords to hide (one per line)
 ├── toolchains/

@@ -25,6 +25,7 @@
 #include <ws2tcpip.h>
 #include <dwmapi.h>
 #include <iphlpapi.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <array>
@@ -32,8 +33,10 @@
 #include <chrono>
 #include <climits>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <cwctype>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -59,6 +62,7 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "shell32.lib")
 
 namespace {
 
@@ -74,8 +78,21 @@ constexpr int kBannerHeight = 72;
 constexpr int kOverlayAlpha = 220;
 constexpr int kHotkeyFreezeId = 1;
 constexpr int kHotkeyQuitId = 2;
+constexpr int kHotkeyPanicId = 3;
 constexpr UINT_PTR kPollTimerId = 1;
 constexpr int kPollTimerIntervalMs = 500;
+
+// System tray
+constexpr UINT kTrayIconId = 1;
+constexpr UINT WM_TRAYICON = WM_USER + 1;
+constexpr UINT kTrayMenuToggleFreeze = 4001;
+constexpr UINT kTrayMenuStatus = 4002;
+constexpr UINT kTrayMenuSelfDestruct = 4003;
+constexpr UINT kTrayMenuQuit = 4004;
+
+// Panic button: must press Ctrl+Alt+X this many times within the time window
+constexpr int kPanicPressesRequired = 5;
+constexpr DWORD kPanicWindowMs = 2000;
 
 // Overlay presence levels (higher = more urgent)
 enum class PresenceLevel { kNone, kAppOpen, kViewing };
@@ -505,6 +522,13 @@ struct SharedState {
     DWORD sessionId = 0;
     std::filesystem::file_time_type blacklistWriteTime{};
     std::wstring blacklistPath;
+
+    // Tray icon
+    NOTIFYICONDATAW trayIconData{};
+    bool trayIconAdded = false;
+
+    // Panic button press timestamps (Ctrl+Alt+X)
+    std::deque<DWORD> panicPresses;
 };
 
 // ─── RFB Pixel Format ────────────────────────────────────────────────────────
@@ -1216,6 +1240,258 @@ void proxyMain(SharedState& shared, int listenPort, int upstreamPort) {
     closeSocket(g_proxyRuntime.listenSock);
 }
 
+// ─── System tray icon ────────────────────────────────────────────────────────
+
+// Create a simple colored square icon for the tray (no external resource needed)
+HICON createTrayIcon(COLORREF color) {
+    constexpr int kSize = 16;
+    HDC screenDc = GetDC(nullptr);
+    HDC memDc = CreateCompatibleDC(screenDc);
+
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = kSize;
+    bi.bmiHeader.biHeight = kSize;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP colorBmp = CreateDIBSection(memDc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (colorBmp && bits) {
+        auto* px = static_cast<uint32_t*>(bits);
+        uint32_t bgra = (GetRValue(color)) | (GetGValue(color) << 8) |
+                        (GetBValue(color) << 16) | (0xFF << 24);
+        for (int i = 0; i < kSize * kSize; ++i) px[i] = bgra;
+    }
+
+    HBITMAP maskBmp = CreateCompatibleBitmap(screenDc, kSize, kSize);
+
+    ICONINFO ii{};
+    ii.fIcon = TRUE;
+    ii.hbmMask = maskBmp;
+    ii.hbmColor = colorBmp;
+    HICON icon = CreateIconIndirect(&ii);
+
+    DeleteObject(colorBmp);
+    DeleteObject(maskBmp);
+    DeleteDC(memDc);
+    ReleaseDC(nullptr, screenDc);
+    return icon;
+}
+
+void addTrayIcon(SharedState& shared, HWND hwnd) {
+    auto& nid = shared.trayIconData;
+    std::memset(&nid, 0, sizeof(nid));
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
+    nid.hWnd = hwnd;
+    nid.uID = kTrayIconId;
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_TRAYICON;
+    nid.hIcon = createTrayIcon(RGB(100, 180, 100)); // green = live
+    wcscpy_s(nid.szTip, L"veyoff - live");
+    Shell_NotifyIconW(NIM_ADD, &nid);
+    shared.trayIconAdded = true;
+}
+
+void updateTrayIcon(SharedState& shared) {
+    if (!shared.trayIconAdded) return;
+    auto& nid = shared.trayIconData;
+
+    bool frozen;
+    PresenceLevel presence;
+    {
+        std::lock_guard lock(shared.mtx);
+        frozen = shared.frozen;
+        presence = shared.presence;
+    }
+
+    // Pick icon color and tooltip based on state
+    COLORREF color;
+    const wchar_t* tip;
+    if (frozen) {
+        color = RGB(70, 130, 230);  // blue = frozen
+        tip = L"veyoff - FROZEN";
+    } else if (presence == PresenceLevel::kViewing) {
+        color = RGB(220, 50, 50);   // red = master viewing
+        tip = L"veyoff - MASTER VIEWING";
+    } else if (presence == PresenceLevel::kAppOpen) {
+        color = RGB(220, 170, 30);  // amber = veyon active
+        tip = L"veyoff - veyon active";
+    } else {
+        color = RGB(100, 180, 100); // green = idle/live
+        tip = L"veyoff - live";
+    }
+
+    if (nid.hIcon) DestroyIcon(nid.hIcon);
+    nid.hIcon = createTrayIcon(color);
+    nid.uFlags = NIF_ICON | NIF_TIP;
+    wcscpy_s(nid.szTip, tip);
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
+void removeTrayIcon(SharedState& shared) {
+    if (!shared.trayIconAdded) return;
+    Shell_NotifyIconW(NIM_DELETE, &shared.trayIconData);
+    if (shared.trayIconData.hIcon) DestroyIcon(shared.trayIconData.hIcon);
+    shared.trayIconAdded = false;
+}
+
+void showTrayMenu(HWND hwnd, SharedState& shared) {
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+
+    bool frozen;
+    PresenceLevel presence;
+    {
+        std::lock_guard lock(shared.mtx);
+        frozen = shared.frozen;
+        presence = shared.presence;
+    }
+
+    // Status line (disabled, just informational)
+    const wchar_t* statusText;
+    if (frozen)
+        statusText = L"Status: FROZEN";
+    else if (presence == PresenceLevel::kViewing)
+        statusText = L"Status: MASTER VIEWING";
+    else if (presence == PresenceLevel::kAppOpen)
+        statusText = L"Status: Veyon active";
+    else
+        statusText = L"Status: Idle";
+    AppendMenuW(menu, MF_STRING | MF_DISABLED | MF_GRAYED, 0, statusText);
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    AppendMenuW(menu, MF_STRING, kTrayMenuToggleFreeze,
+                frozen ? L"Unfreeze Screen" : L"Freeze Screen");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kTrayMenuSelfDestruct, L"Self-Destruct");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kTrayMenuQuit, L"Quit");
+
+    // Required for the menu to dismiss when clicking elsewhere
+    SetForegroundWindow(hwnd);
+    POINT pt{};
+    GetCursorPos(&pt);
+    TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
+                   pt.x, pt.y, 0, hwnd, nullptr);
+    PostMessageW(hwnd, WM_NULL, 0, 0);
+    DestroyMenu(menu);
+}
+
+// ─── Self-destruct (nuclear) ─────────────────────────────────────────────────
+//
+// 1. Restore Veyon registry + restart service (normal cleanup)
+// 2. Clear relevant Windows event log channels
+// 3. Delete prefetch files matching our exe name
+// 4. Schedule deletion of the exe and its parent directory via a cmd.exe
+//    that waits for our process to exit, then deletes everything.
+
+void clearEventLogs() {
+    // Clear event log channels that might reference veyoff
+    const wchar_t* channels[] = {
+        L"Application",
+        L"System",
+        L"Security",
+    };
+    for (const auto* channel : channels) {
+        HANDLE hLog = OpenEventLogW(nullptr, channel);
+        if (hLog) {
+            ClearEventLogW(hLog, nullptr);
+            CloseEventLog(hLog);
+        }
+    }
+}
+
+void clearPrefetch() {
+    // Prefetch files are in C:\Windows\Prefetch, named like VEYOFF-WINDOWS.EXE-XXXX.pf
+    // We need admin to delete them (which we already have)
+    wchar_t winDir[MAX_PATH]{};
+    GetWindowsDirectoryW(winDir, MAX_PATH);
+    std::wstring prefetchDir = std::wstring(winDir) + L"\\Prefetch";
+
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(prefetchDir, ec)) {
+        if (!entry.is_regular_file()) continue;
+        auto name = toLower(entry.path().filename().wstring());
+        if (name.find(L"veyoff") != std::wstring::npos) {
+            std::filesystem::remove(entry.path(), ec);
+        }
+    }
+}
+
+// Schedule deletion of our exe and directory after the process exits.
+// Uses a detached cmd.exe that polls until our PID is gone, then deletes.
+void scheduleSelfDeletion() {
+    wchar_t exePath[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+    std::wstring exeDir = std::filesystem::path(exePath).parent_path().wstring();
+    DWORD pid = GetCurrentProcessId();
+
+    // Build a cmd command that:
+    //   1. Waits in a loop until our process exits
+    //   2. Deletes everything in the exe's directory
+    //   3. Removes the directory itself
+    //   4. Deletes the cmd script temp file
+    // We use ping localhost as a portable sleep (1 second between checks)
+    wchar_t tempDir[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, tempDir);
+    std::wstring batPath = std::wstring(tempDir) + L"veyoff_cleanup.bat";
+
+    // Write the batch script
+    {
+        auto batFsPath = std::filesystem::path(batPath);
+        std::ofstream bat{batFsPath};
+        bat << "@echo off\n";
+        bat << ":wait\n";
+        bat << "tasklist /FI \"PID eq " << pid << "\" 2>NUL | find /I \"" << pid << "\" >NUL\n";
+        bat << "if not errorlevel 1 (\n";
+        bat << "  ping -n 2 127.0.0.1 >NUL\n";
+        bat << "  goto wait\n";
+        bat << ")\n";
+        // Small extra delay to ensure handles are released
+        bat << "ping -n 2 127.0.0.1 >NUL\n";
+
+        // Convert wide paths to narrow for the batch file
+        auto narrowExeDir = std::filesystem::path(exeDir).string();
+        auto narrowBatPath = batFsPath.string();
+
+        bat << "rd /s /q \"" << narrowExeDir << "\" 2>NUL\n";
+        bat << "del /f /q \"" << narrowBatPath << "\" 2>NUL\n";
+    }
+
+    // Launch the batch script hidden
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi{};
+
+    std::wstring cmdLine = L"cmd.exe /c \"" + batPath + L"\"";
+    CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE,
+                   CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &si, &pi);
+    if (pi.hProcess) CloseHandle(pi.hProcess);
+    if (pi.hThread) CloseHandle(pi.hThread);
+}
+
+// Forward declaration (defined later, needs cleanup context)
+void performSelfDestruct(SharedState& shared);
+
+// Check if panic button was pressed enough times in the window
+bool checkPanicTrigger(SharedState& shared) {
+    DWORD now = GetTickCount();
+    shared.panicPresses.push_back(now);
+
+    // Remove old presses outside the time window
+    while (!shared.panicPresses.empty() &&
+           (now - shared.panicPresses.front()) > kPanicWindowMs) {
+        shared.panicPresses.pop_front();
+    }
+
+    return static_cast<int>(shared.panicPresses.size()) >= kPanicPressesRequired;
+}
+
 // ─── Overlay window ──────────────────────────────────────────────────────────
 
 void paintOverlay(HWND hwnd, PresenceLevel level) {
@@ -1443,16 +1719,50 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_CREATE:
         RegisterHotKey(hwnd, kHotkeyFreezeId, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'F');
         RegisterHotKey(hwnd, kHotkeyQuitId, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'Q');
+        RegisterHotKey(hwnd, kHotkeyPanicId, MOD_CONTROL | MOD_ALT, 'X');
         SetTimer(hwnd, kPollTimerId, kPollTimerIntervalMs, nullptr);
         SetLayeredWindowAttributes(hwnd, 0, static_cast<BYTE>(kOverlayAlpha), LWA_ALPHA);
         trySetWindowDisplayAffinity(hwnd);
+        if (shared) addTrayIcon(*shared, hwnd);
         return 0;
     case WM_TIMER:
-        if (shared && wParam == kPollTimerId) onPollTimer(*shared);
+        if (shared && wParam == kPollTimerId) {
+            onPollTimer(*shared);
+            updateTrayIcon(*shared);
+        }
         return 0;
     case WM_HOTKEY:
-        if (shared && wParam == kHotkeyFreezeId) toggleFreeze(*shared);
+        if (shared && wParam == kHotkeyFreezeId) {
+            toggleFreeze(*shared);
+            updateTrayIcon(*shared);
+        }
         if (wParam == kHotkeyQuitId) PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        if (shared && wParam == kHotkeyPanicId) {
+            if (checkPanicTrigger(*shared)) {
+                performSelfDestruct(*shared);
+            }
+        }
+        return 0;
+    case WM_TRAYICON:
+        if (shared && lParam == WM_RBUTTONUP) {
+            showTrayMenu(hwnd, *shared);
+        }
+        return 0;
+    case WM_COMMAND:
+        switch (LOWORD(wParam)) {
+        case kTrayMenuToggleFreeze:
+            if (shared) {
+                toggleFreeze(*shared);
+                updateTrayIcon(*shared);
+            }
+            break;
+        case kTrayMenuSelfDestruct:
+            if (shared) performSelfDestruct(*shared);
+            break;
+        case kTrayMenuQuit:
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            break;
+        }
         return 0;
     case WM_DISPLAYCHANGE:
         if (shared && shared->overlayShowing != PresenceLevel::kNone) {
@@ -1470,9 +1780,11 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         return 0;
     }
     case WM_DESTROY:
+        if (shared) removeTrayIcon(*shared);
         KillTimer(hwnd, kPollTimerId);
         UnregisterHotKey(hwnd, kHotkeyFreezeId);
         UnregisterHotKey(hwnd, kHotkeyQuitId);
+        UnregisterHotKey(hwnd, kHotkeyPanicId);
         PostQuitMessage(0);
         return 0;
     default:
@@ -1532,6 +1844,52 @@ void performCleanup() {
     writeVncPortToRegistry(g_cleanup.originalPort);
     restartVeyonService(g_cleanup.originalPort + static_cast<int>(g_cleanup.sessionId));
     g_cleanup.needsRestore = false;
+}
+
+void performSelfDestruct(SharedState& shared) {
+    std::wcout << L"\n*** SELF-DESTRUCT ACTIVATED ***" << std::endl;
+
+    // 1. Remove tray icon immediately (visual cleanup)
+    removeTrayIcon(shared);
+
+    // 2. Restore Veyon registry + restart service (normal cleanup)
+    performCleanup();
+
+    // 3. Clear event logs
+    std::wcout << L"Clearing event logs..." << std::endl;
+    clearEventLogs();
+
+    // 4. Clear prefetch
+    std::wcout << L"Clearing prefetch entries..." << std::endl;
+    clearPrefetch();
+
+    // 5. Delete config files next to the exe
+    wchar_t exePath[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    auto exeDir = std::filesystem::path(exePath).parent_path();
+
+    // Delete blacklist and any config files
+    std::error_code ec;
+    auto configDir = exeDir / L"config";
+    if (std::filesystem::exists(configDir, ec)) {
+        std::filesystem::remove_all(configDir, ec);
+    }
+    // Also try the blacklist path from shared state
+    if (!shared.blacklistPath.empty()) {
+        std::filesystem::remove(shared.blacklistPath, ec);
+    }
+
+    // 6. Schedule deletion of exe + directory after process exits
+    std::wcout << L"Scheduling file deletion..." << std::endl;
+    scheduleSelfDeletion();
+
+    // 7. Exit immediately
+    std::wcout << L"Exiting." << std::endl;
+
+    // Force quit without going through normal message loop shutdown
+    // (performCleanup already restored Veyon, atexit would double-restore)
+    g_cleanup.needsRestore = false;
+    ExitProcess(0);
 }
 
 BOOL WINAPI consoleCtrlHandler(DWORD ctrlType) {
@@ -1637,7 +1995,7 @@ int wmain(int argc, wchar_t* argv[]) {
         proxyMain(shared, listenPort, upstreamPort);
     });
 
-    std::wcout << L"Veyoff active. Ctrl+Alt+F to freeze. Ctrl+Alt+Q to quit." << std::endl;
+    std::wcout << L"Veyoff active. Ctrl+Alt+F freeze | Ctrl+Alt+Q quit | Ctrl+Alt+X(x5) panic" << std::endl;
 
     // Step 7: Run Win32 message loop (for overlay + hotkey)
     MSG message{};
