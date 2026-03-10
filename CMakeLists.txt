@@ -27,7 +27,7 @@ else()
 endif()
 
 set(VEYOFF_FILE_VERSION_STR "${VEYOFF_VERSION_MAJOR}.${VEYOFF_VERSION_MINOR}.${VEYOFF_VERSION_PATCH}.${VEYOFF_VERSION_BUILD}")
-file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/docs/brand/logo.ico" VEYOFF_ICON_PATH)
+set(VEYOFF_ICON_PATH "${CMAKE_SOURCE_DIR}/docs/brand/logo.ico")
 configure_file(
   "${CMAKE_SOURCE_DIR}/src/windows/veyoff-version.rc.in"
   "${CMAKE_BINARY_DIR}/veyoff-version.rc"
