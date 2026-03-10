@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>how veyoff works — visual guide</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        
+        .hero {
+            text-align: center;
+            padding: 60px 20px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 20px;
+            margin-bottom: 40px;
+        }
+        .hero h1 {
+            font-size: 3.5em;
+            margin-bottom: 20px;
+            background: linear-gradient(90deg, #ff6b6b, #ffa500);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero p { font-size: 1.3em; color: #888; }
+        
+        .section {
+            margin-bottom: 60px;
+            padding: 40px;
+            background: #111;
+            border-radius: 15px;
+            border: 1px solid #222;
+        }
+        .section h2 {
+            font-size: 2.2em;
+            margin-bottom: 30px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .section h2 .icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+        }
+        
+        .problem-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+        .problem-card {
+            background: #1a1a1a;
+            padding: 30px;
+            border-radius: 12px;
+            border-left: 4px solid #ff4757;
+        }
+        .problem-card h3 { color: #ff4757; margin-bottom: 15px; }
+        
+        .architecture-flow {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin: 40px 0;
+        }
+        .flow-step {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 25px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border-radius: 12px;
+            position: relative;
+        }
+        .flow-step.veyoff {
+            background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
+            border: 3px solid #fbbf24;
+        }
+        .step-number {
+            width: 50px;
+            height: 50px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        .step-port {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            margin-top: 8px;
+        }
+        
+        .code-block {
+            background: #1e1e1e;
+            border-radius: 10px;
+            padding: 25px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+            border-left: 4px solid #667eea;
+        }
+        .code-block .comment { color: #6a9955; }
+        .code-block .keyword { color: #569cd6; }
+        
+        .feature-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        .feature-tab {
+            padding: 15px 30px;
+            background: #222;
+            border: 2px solid #333;
+            border-radius: 30px;
+            cursor: pointer;
+        }
+        .feature-tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+        }
+        .feature-content { display: none; }
+        .feature-content.active { display: block; }
+        
+        .demo-container {
+            background: #1a1a1a;
+            border-radius: 15px;
+            padding: 40px;
+            margin-top: 30px;
+            text-align: center;
+        }
+        .screen-demo {
+            width: 100%;
+            max-width: 600px;
+            height: 350px;
+            background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+            border-radius: 10px;
+            margin: 0 auto 30px;
+            position: relative;
+            border: 3px solid #4a5568;
+        }
+        .overlay-demo {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.3em;
+            opacity: 0;
+        }
+        .overlay-demo.amber {
+            background: linear-gradient(90deg, #d97706, #f59e0b);
+            color: #1a1a1a;
+            opacity: 1;
+        }
+        .overlay-demo.red {
+            background: linear-gradient(90deg, #dc2626, #ef4444);
+            color: white;
+            opacity: 1;
+        }
+        .demo-controls { display: flex; gap: 15px; justify-content: center; }
+        .demo-btn {
+            padding: 15px 30px;
+            background: #333;
+            border: 2px solid #444;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+        }
+        
+        .steps-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            margin-top: 40px;
+        }
+        .step-card {
+            background: #1a1a1a;
+            border-radius: 15px;
+            padding: 30px;
+            border-top: 5px solid;
+            border-image: linear-gradient(90deg, #667eea 0%, #764ba2 100%) 1;
+        }
+        .step-icon { font-size: 3em; margin-bottom: 20px; }
+        
+        .hotkeys-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .hotkey-card {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            border: 2px solid #333;
+        }
+        .hotkey-combo {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+        .key {
+            background: #333;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            border-bottom: 3px solid #555;
+        }
+        .key.ctrl { background: #dc2626; }
+        .key.alt { background: #2563eb; }
+        .key.f { background: #059669; }
+        .key.q { background: #7c3aed; }
+        
+        footer {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            border-top: 1px solid #222;
+            margin-top: 60px;
+        }
+        
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5em; }
+            .problem-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="hero">
+            <h1>veyoff</h1>
+            <p>understand how this privacy tool works under the hood<br>a visual guide to the man-in-the-middle proxy</p>
+        </div>
+
+        <div class="section">
+            <h2><span class="icon">⚠️</span> the problem</h2>
+            <div class="problem-grid">
+                <div class="problem-card">
+                    <h3>veyon sees everything</h3>
+                    <p>veyon is classroom monitoring software that lets teachers view and control student screens in real-time. it runs as a system service with deep access.</p>
+                </div>
+                <div class="problem-card">
+                    <h3>no privacy controls</h3>
+                    <p>once veyon is installed, the teacher can see your screen at any time without warning. there's no built-in way to know when you're being watched.</p>
+                </div>
+                <div class="problem-card">
+                    <h3>the network path</h3>
+                    <p>veyon uses a two-tier architecture: an external proxy receives connections from the teacher, then forwards to an internal VNC server.</p>
+                </div>
+                <div class="problem-card">
+                    <h3>the opportunity</h3>
+                    <p>if we can sit between those two components, we can intercept and modify what the teacher sees without them knowing anything changed.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2><span class="icon">🏗️</span> the architecture</h2>
+            <div class="architecture-flow">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div>
+                        <h3>veyon master (teacher)</h3>
+                        <p>the teacher's computer runs the veyon master application</p>
+                        <span class="step-port">port 11100+session</span>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div>
+                        <h3>veyon VncProxyServer</h3>
+                        <p>handles authentication and protocol conversion</p>
+                        <span class="step-port">forwards to internal VNC</span>
+                    </div>
+                </div>
+                <div class="flow-step veyoff">
+                    <div class="step-number">⚡</div>
+                    <div>
+                        <h3>VEYOFF PROXY</h3>
+                        <p>our man-in-the-middle: intercepts RFB traffic, serves frozen frames</p>
+                        <span class="step-port">port 11200+session</span>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div>
+                        <h3>real UltraVNC</h3>
+                        <p>the actual screen capture engine, redirected to a different port</p>
+                        <span class="step-port">port 11250+session</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="code-block">
+<span class="comment">// setup flow on launch</span>
+1. readVncPortFromRegistry()      <span class="comment">// gets current port</span>
+2. writeVncPortToRegistry(+50)    <span class="comment">// redirect to new port</span>
+3. restartVeyonService()          <span class="comment">// apply changes</span>
+4. bindProxy(originalPort)        <span class="comment">// veyoff takes over</span>
+5. startProxyThreads()            <span class="comment">// intercept traffic</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2><span class="icon">🎛️</span> features</h2>
+            <div class="feature-tabs">
+                <div class="feature-tab active" onclick="showFeature('freeze', this)">freeze mode</div>
+                <div class="feature-tab" onclick="showFeature('blacklist', this)">window hiding</div>
+                <div class="feature-tab" onclick="showFeature('overlay', this)">presence overlay</div>
+            </div>
+            
+            <div id="freeze" class="feature-content active">
+                <h3>freeze mode</h3>
+                <p>press <strong>Ctrl+Alt+F</strong> to capture your current screen. from that moment on, veyoff sends the frozen frame to the teacher while you continue working normally.</p>
+                <div class="code-block">
+<span class="comment">// freeze logic</span>
+if (frozen && frozenFrame.valid()) {
+    sendFrame(frozenFrame);   <span class="comment">// send old frame</span>
+} else {
+    forwardToRealVnc();       <span class="comment">// normal flow</span>
+}
+                </div>
+            </div>
+            
+            <div id="blacklist" class="feature-content">
+                <h3>window hiding</h3>
+                <p>blacklisted windows are painted black before being sent. veyoff enumerates visible windows, checks titles against keywords in blacklist.txt, and blacks out matching regions.</p>
+            </div>
+            
+            <div id="overlay" class="feature-content">
+                <h3>presence overlay</h3>
+                <p>two-level warning system invisible to veyon:</p>
+                <div class="demo-container">
+                    <div class="screen-demo">
+                        <div class="overlay-demo" id="presenceOverlay">VEYON ACTIVE</div>
+                    </div>
+                    <div class="demo-controls">
+                        <button class="demo-btn" onclick="demoPresence('none')">clear</button>
+                        <button class="demo-btn" onclick="demoPresence('amber')">amber: app open</button>
+                        <button class="demo-btn" onclick="demoPresence('red')">red: viewing</button>
+                    </div>
+                </div>
+                <div class="code-block">
+<span class="comment">// presence detection</span>
+bool tcpConnected = detectMasterConnection(sessionId);
+bool viewing = activeSessionCount() > 0;
+
+if (viewing)        presence = kViewing;   <span class="comment">// RED</span>
+else if (tcpConnected) presence = kAppOpen; <span class="comment">// AMBER</span>
+else                presence = kNone;      <span class="comment">// none</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2><span class="icon">📋</span> how it works step by step</h2>
+            <div class="steps-container">
+                <div class="step-card">
+                    <div class="step-icon">🔍</div>
+                    <h3>1. registry read</h3>
+                    <p>reads VncServerPort from HKLM\SOFTWARE\Veyon Solutions\Veyon\Network</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-icon">📝</div>
+                    <h3>2. port redirect</h3>
+                    <p>writes port + 50 to registry (e.g., 11200 to 11250)</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-icon">🔄</div>
+                    <h3>3. service restart</h3>
+                    <p>restarts VeyonService to apply changes (1-2 second blip)</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-icon">🎭</div>
+                    <h3>4. proxy bind</h3>
+                    <p>veyoff binds to original VNC port and accepts connections</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-icon">🤝</div>
+                    <h3>5. RFB handshake</h3>
+                    <p>transparently forwards handshake, learns framebuffer size</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-icon">⚡</div>
+                    <h3>6. intercept mode</h3>
+                    <p>parses RFB messages and can inject frozen/redacted frames</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2><span class="icon">⌨️</span> hotkeys</h2>
+            <div class="hotkeys-grid">
+                <div class="hotkey-card">
+                    <div class="hotkey-combo">
+                        <span class="key ctrl">ctrl</span>
+                        <span class="key alt">alt</span>
+                        <span class="key f">F</span>
+                    </div>
+                    <p>freeze/unfreeze screen</p>
+                </div>
+                <div class="hotkey-card">
+                    <div class="hotkey-combo">
+                        <span class="key ctrl">ctrl</span>
+                        <span class="key alt">alt</span>
+                        <span class="key q">Q</span>
+                    </div>
+                    <p>quit veyoff</p>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>veyoff — privacy tool for legitimate use only</p>
+            <p style="font-size: 0.9em;">comply with your organization's policies</p>
+        </footer>
+    </div>
+
+    <script>
+        function showFeature(feature, tab) {
+            document.querySelectorAll('.feature-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.feature-tab').forEach(el => el.classList.remove('active'));
+            document.getElementById(feature).classList.add('active');
+            tab.classList.add('active');
+        }
+        function demoPresence(level) {
+            const overlay = document.getElementById('presenceOverlay');
+            overlay.className = 'overlay-demo';
+            if (level === 'amber') { overlay.classList.add('amber'); overlay.textContent = 'VEYON ACTIVE'; }
+            else if (level === 'red') { overlay.classList.add('red'); overlay.textContent = 'MASTER VIEWING'; }
+            else { overlay.style.opacity = '0'; }
+        }
+    </script>
+</body>
+</html>
