@@ -64,10 +64,13 @@ Or with a custom blacklist path:
 
 ### 2. Master Presence Overlay
 
-1. When a Veyon master connects, a red `MASTER VIEWING` banner appears
-   at the top of the screen
-2. The banner is invisible to Veyon's screen capture (`WDA_EXCLUDEFROMCAPTURE`)
-3. When the master disconnects, the banner disappears
+1. When a Veyon master connects, a thin red inside outline appears around the
+   visible monitor bounds
+2. If the master app is connected but not actively viewing, the outline is amber
+3. The outline is invisible to Veyon's screen capture (`WDA_EXCLUDEFROMCAPTURE`)
+4. When the master disconnects, the outline disappears
+5. Uncheck `Show Amber Outline` or `Show Red Outline` in the tray menu and
+   verify each warning can be hidden independently
 
 ### 3. Window Filtering
 

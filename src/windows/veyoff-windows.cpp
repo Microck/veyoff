@@ -74,7 +74,7 @@ constexpr wchar_t kVncPortValueName[] = L"VncServerPort";
 constexpr wchar_t kServiceName[] = L"VeyonService";
 constexpr int kDefaultVncBasePort = 11200;
 constexpr int kPortOffset = 50;
-constexpr int kBannerHeight = 72;
+constexpr int kOverlayOutlineThickness = 6;
 constexpr int kOverlayAlpha = 220;
 constexpr int kHotkeyFreezeId = 1;
 constexpr int kHotkeyQuitId = 2;
@@ -91,13 +91,24 @@ constexpr UINT kTrayMenuSelfDestruct = 4003;
 constexpr UINT kTrayMenuQuit = 4004;
 constexpr UINT kTrayMenuEditBlacklist = 4005;
 constexpr UINT kTrayMenuReloadConfig = 4006;
+constexpr UINT kTrayMenuToggleAmberOutline = 4007;
+constexpr UINT kTrayMenuToggleRedOutline = 4008;
 
 // Panic button: must press Ctrl+Alt+X this many times within the time window
 constexpr int kPanicPressesRequired = 5;
 constexpr DWORD kPanicWindowMs = 2000;
 
+constexpr wchar_t kOverlaySettingsSection[] = L"overlay";
+constexpr wchar_t kOverlayAmberSettingKey[] = L"show_amber_outline";
+constexpr wchar_t kOverlayRedSettingKey[] = L"show_red_outline";
+
 // Overlay presence levels (higher = more urgent)
 enum class PresenceLevel { kNone, kAppOpen, kViewing };
+
+struct OverlaySettings {
+    bool showAmberOutline = true;
+    bool showRedOutline = true;
+};
 
 // RFB protocol constants
 constexpr int kRfbVersionLength = 12;
@@ -245,6 +256,55 @@ struct WindowMask {
         entries.push_back(toLower(cleaned));
     }
     return entries;
+}
+
+[[nodiscard]] std::wstring deriveSettingsPath(const std::wstring& blacklistPath) {
+    auto configDir = std::filesystem::path(blacklistPath).parent_path();
+    if (configDir.empty()) return L"settings.ini";
+    return (configDir / L"settings.ini").wstring();
+}
+
+void ensureParentDirectoryExists(const std::wstring& path) {
+    auto parent = std::filesystem::path(path).parent_path();
+    if (parent.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(parent, ec);
+}
+
+[[nodiscard]] OverlaySettings loadOverlaySettings(const std::wstring& path) {
+    if (path.empty()) return {};
+
+    OverlaySettings settings;
+    settings.showAmberOutline =
+        GetPrivateProfileIntW(kOverlaySettingsSection, kOverlayAmberSettingKey, 1, path.c_str()) != 0;
+    settings.showRedOutline =
+        GetPrivateProfileIntW(kOverlaySettingsSection, kOverlayRedSettingKey, 1, path.c_str()) != 0;
+    return settings;
+}
+
+[[nodiscard]] bool saveOverlaySettings(const std::wstring& path,
+                                       const OverlaySettings& settings) {
+    if (path.empty()) return false;
+
+    ensureParentDirectoryExists(path);
+    bool wroteAmber =
+        WritePrivateProfileStringW(kOverlaySettingsSection, kOverlayAmberSettingKey,
+                                   settings.showAmberOutline ? L"1" : L"0",
+                                   path.c_str()) != 0;
+    bool wroteRed =
+        WritePrivateProfileStringW(kOverlaySettingsSection, kOverlayRedSettingKey,
+                                   settings.showRedOutline ? L"1" : L"0",
+                                   path.c_str()) != 0;
+    return wroteAmber && wroteRed;
+}
+
+[[nodiscard]] PresenceLevel overlayLevelForSettings(PresenceLevel presence,
+                                                    const OverlaySettings& settings) {
+    if (presence == PresenceLevel::kViewing && settings.showRedOutline)
+        return PresenceLevel::kViewing;
+    if (presence == PresenceLevel::kAppOpen && settings.showAmberOutline)
+        return PresenceLevel::kAppOpen;
+    return PresenceLevel::kNone;
 }
 
 [[nodiscard]] bool titleMatchesBlacklist(const std::wstring& title,
@@ -523,7 +583,11 @@ struct SharedState {
     PresenceLevel overlayShowing = PresenceLevel::kNone;
     DWORD sessionId = 0;
     std::filesystem::file_time_type blacklistWriteTime{};
+    std::filesystem::file_time_type settingsWriteTime{};
     std::wstring blacklistPath;
+    std::wstring settingsPath;
+    bool showAmberOutline = true;
+    bool showRedOutline = true;
 
     // Tray icon
     NOTIFYICONDATAW trayIconData{};
@@ -1345,10 +1409,14 @@ void showTrayMenu(HWND hwnd, SharedState& shared) {
 
     bool frozen;
     PresenceLevel presence;
+    bool showAmberOutline;
+    bool showRedOutline;
     {
         std::lock_guard lock(shared.mtx);
         frozen = shared.frozen;
         presence = shared.presence;
+        showAmberOutline = shared.showAmberOutline;
+        showRedOutline = shared.showRedOutline;
     }
 
     // Status line (disabled, just informational)
@@ -1369,6 +1437,10 @@ void showTrayMenu(HWND hwnd, SharedState& shared) {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kTrayMenuEditBlacklist, L"Edit Blacklist...");
     AppendMenuW(menu, MF_STRING, kTrayMenuReloadConfig, L"Reload Config");
+    AppendMenuW(menu, MF_STRING | (showAmberOutline ? MF_CHECKED : MF_UNCHECKED),
+                kTrayMenuToggleAmberOutline, L"Show Amber Outline");
+    AppendMenuW(menu, MF_STRING | (showRedOutline ? MF_CHECKED : MF_UNCHECKED),
+                kTrayMenuToggleRedOutline, L"Show Red Outline");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kTrayMenuSelfDestruct, L"Self-Destruct");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -1502,60 +1574,108 @@ bool checkPanicTrigger(SharedState& shared) {
 void paintOverlay(HWND hwnd, PresenceLevel level) {
     PAINTSTRUCT ps{};
     auto dc = BeginPaint(hwnd, &ps);
+    if (level == PresenceLevel::kNone) {
+        EndPaint(hwnd, &ps);
+        return;
+    }
     RECT rc{};
     GetClientRect(hwnd, &rc);
 
-    COLORREF bgColor, borderColor, textColor;
-    const wchar_t* text;
-    if (level == PresenceLevel::kViewing) {
-        bgColor = RGB(180, 0, 0);       // red — actively viewing your screen
-        borderColor = RGB(255, 255, 255);
-        textColor = RGB(255, 255, 255);
-        text = L"MASTER VIEWING";
-    } else {
-        bgColor = RGB(200, 150, 0);     // amber — veyon app is open
-        borderColor = RGB(60, 40, 0);
-        textColor = RGB(40, 20, 0);
-        text = L"VEYON ACTIVE";
+    COLORREF outlineColor =
+        level == PresenceLevel::kViewing ? RGB(220, 50, 50) : RGB(220, 170, 30);
+    auto outlineBrush = CreateSolidBrush(outlineColor);
+    FillRect(dc, &rc, outlineBrush);
+    DeleteObject(outlineBrush);
+    EndPaint(hwnd, &ps);
+}
+
+void addMonitorBorderToRegion(HRGN region, const RECT& monitorRect, int thickness) {
+    int width = monitorRect.right - monitorRect.left;
+    int height = monitorRect.bottom - monitorRect.top;
+    if (width <= 0 || height <= 0) return;
+
+    int actualThickness = std::max(1, std::min({thickness, width / 2, height / 2}));
+    HRGN pieces[] = {
+        CreateRectRgn(monitorRect.left, monitorRect.top,
+                      monitorRect.right, monitorRect.top + actualThickness),
+        CreateRectRgn(monitorRect.left, monitorRect.bottom - actualThickness,
+                      monitorRect.right, monitorRect.bottom),
+        CreateRectRgn(monitorRect.left, monitorRect.top + actualThickness,
+                      monitorRect.left + actualThickness, monitorRect.bottom - actualThickness),
+        CreateRectRgn(monitorRect.right - actualThickness, monitorRect.top + actualThickness,
+                      monitorRect.right, monitorRect.bottom - actualThickness),
+    };
+    for (auto piece : pieces) {
+        if (!piece) continue;
+        CombineRgn(region, region, piece, RGN_OR);
+        DeleteObject(piece);
+    }
+}
+
+struct OverlayRegionContext {
+    int originX = 0;
+    int originY = 0;
+    HRGN region = nullptr;
+};
+
+BOOL CALLBACK enumOverlayMonitorProc(HMONITOR, HDC, LPRECT monitorRect, LPARAM lParam) {
+    auto* ctx = reinterpret_cast<OverlayRegionContext*>(lParam);
+    RECT localRect{
+        monitorRect->left - ctx->originX,
+        monitorRect->top - ctx->originY,
+        monitorRect->right - ctx->originX,
+        monitorRect->bottom - ctx->originY,
+    };
+    addMonitorBorderToRegion(ctx->region, localRect, kOverlayOutlineThickness);
+    return TRUE;
+}
+
+void updateOverlayRegion(HWND hwnd) {
+    auto region = CreateRectRgn(0, 0, 0, 0);
+    if (!region) return;
+
+    auto originX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    auto originY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    OverlayRegionContext ctx{originX, originY, region};
+    if (!EnumDisplayMonitors(nullptr, nullptr, enumOverlayMonitorProc,
+                             reinterpret_cast<LPARAM>(&ctx))) {
+        RECT clientRect{};
+        GetClientRect(hwnd, &clientRect);
+        addMonitorBorderToRegion(region, clientRect, kOverlayOutlineThickness);
     }
 
-    auto bgBrush = CreateSolidBrush(bgColor);
-    FillRect(dc, &rc, bgBrush);
-    DeleteObject(bgBrush);
-    auto bBrush = CreateSolidBrush(borderColor);
-    FrameRect(dc, &rc, bBrush);
-    DeleteObject(bBrush);
-    SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, textColor);
-    auto font = CreateFontW(-28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    auto oldFont = SelectObject(dc, font);
-    DrawTextW(dc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-    EndPaint(hwnd, &ps);
+    SetWindowRgn(hwnd, region, TRUE);
 }
 
 void positionOverlay(HWND hwnd) {
     auto x = GetSystemMetrics(SM_XVIRTUALSCREEN);
     auto y = GetSystemMetrics(SM_YVIRTUALSCREEN);
     auto w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, kBannerHeight,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    auto h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    updateOverlayRegion(hwnd);
 }
 
 void updateOverlay(SharedState& shared) {
-    std::lock_guard lock(shared.mtx);
-    if (shared.presence == shared.overlayShowing) return;
-    shared.overlayShowing = shared.presence;
-    if (shared.overlayShowing != PresenceLevel::kNone) {
-        positionOverlay(shared.overlayHwnd);
-        ShowWindow(shared.overlayHwnd, SW_SHOWNOACTIVATE);
-        InvalidateRect(shared.overlayHwnd, nullptr, TRUE);
+    HWND overlayHwnd = nullptr;
+    PresenceLevel overlayLevel = PresenceLevel::kNone;
+    {
+        std::lock_guard lock(shared.mtx);
+        overlayHwnd = shared.overlayHwnd;
+        overlayLevel = overlayLevelForSettings(
+            shared.presence, {shared.showAmberOutline, shared.showRedOutline});
+        if (overlayLevel == shared.overlayShowing) return;
+        shared.overlayShowing = overlayLevel;
+    }
+
+    if (!overlayHwnd) return;
+
+    if (overlayLevel != PresenceLevel::kNone) {
+        positionOverlay(overlayHwnd);
+        ShowWindow(overlayHwnd, SW_SHOWNOACTIVATE);
+        InvalidateRect(overlayHwnd, nullptr, TRUE);
     } else {
-        ShowWindow(shared.overlayHwnd, SW_HIDE);
+        ShowWindow(overlayHwnd, SW_HIDE);
     }
 }
 
@@ -1651,21 +1771,53 @@ void onPollTimer(SharedState& shared) {
         else
             shared.presence = PresenceLevel::kNone;
     }
-    updateOverlay(shared);
 
     // Blacklist reload
-    auto path = std::filesystem::path(shared.blacklistPath);
+    std::wstring blacklistPath;
+    std::wstring settingsPath;
+    std::filesystem::file_time_type blacklistWriteTime{};
+    std::filesystem::file_time_type settingsWriteTime{};
+    {
+        std::lock_guard lock(shared.mtx);
+        blacklistPath = shared.blacklistPath;
+        settingsPath = shared.settingsPath;
+        blacklistWriteTime = shared.blacklistWriteTime;
+        settingsWriteTime = shared.settingsWriteTime;
+    }
+
+    auto path = std::filesystem::path(blacklistPath);
     if (std::filesystem::exists(path)) {
         auto wt = std::filesystem::last_write_time(path);
-        std::lock_guard lock(shared.mtx);
-        if (shared.blacklist.empty() || wt != shared.blacklistWriteTime) {
-            shared.blacklist = loadBlacklist(shared.blacklistPath);
+        if (wt != blacklistWriteTime) {
+            auto blacklist = loadBlacklist(blacklistPath);
+            std::lock_guard lock(shared.mtx);
+            shared.blacklist = std::move(blacklist);
             shared.blacklistWriteTime = wt;
         }
     } else {
         std::lock_guard lock(shared.mtx);
         shared.blacklist.clear();
+        shared.blacklistWriteTime = {};
     }
+
+    auto settingsFile = std::filesystem::path(settingsPath);
+    if (std::filesystem::exists(settingsFile)) {
+        auto wt = std::filesystem::last_write_time(settingsFile);
+        if (wt != settingsWriteTime) {
+            auto settings = loadOverlaySettings(settingsPath);
+            std::lock_guard lock(shared.mtx);
+            shared.showAmberOutline = settings.showAmberOutline;
+            shared.showRedOutline = settings.showRedOutline;
+            shared.settingsWriteTime = wt;
+        }
+    } else {
+        std::lock_guard lock(shared.mtx);
+        shared.showAmberOutline = true;
+        shared.showRedOutline = true;
+        shared.settingsWriteTime = {};
+    }
+
+    updateOverlay(shared);
 }
 
 void toggleFreeze(SharedState& shared) {
@@ -1775,14 +1927,71 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             break;
         case kTrayMenuReloadConfig:
-            if (shared && !shared->blacklistPath.empty()) {
-                shared->blacklist = loadBlacklist(shared->blacklistPath);
-                if (std::filesystem::exists(shared->blacklistPath))
-                    shared->blacklistWriteTime =
-                        std::filesystem::last_write_time(shared->blacklistPath);
-                std::wcout << L"Blacklist reloaded ("
-                          << shared->blacklist.size()
-                          << L" entries)" << std::endl;
+            if (shared) {
+                std::wstring blacklistPath;
+                std::wstring settingsPath;
+                {
+                    std::lock_guard lock(shared->mtx);
+                    blacklistPath = shared->blacklistPath;
+                    settingsPath = shared->settingsPath;
+                }
+
+                auto blacklist = loadBlacklist(blacklistPath);
+                auto settings = loadOverlaySettings(settingsPath);
+                auto blacklistWriteTime = std::filesystem::exists(blacklistPath)
+                    ? std::filesystem::last_write_time(blacklistPath)
+                    : std::filesystem::file_time_type{};
+                auto settingsWriteTime = std::filesystem::exists(settingsPath)
+                    ? std::filesystem::last_write_time(settingsPath)
+                    : std::filesystem::file_time_type{};
+
+                size_t blacklistCount = 0;
+                bool amberEnabled = true;
+                bool redEnabled = true;
+                {
+                    std::lock_guard lock(shared->mtx);
+                    shared->blacklist = std::move(blacklist);
+                    shared->blacklistWriteTime = blacklistWriteTime;
+                    shared->showAmberOutline = settings.showAmberOutline;
+                    shared->showRedOutline = settings.showRedOutline;
+                    shared->settingsWriteTime = settingsWriteTime;
+                    blacklistCount = shared->blacklist.size();
+                    amberEnabled = shared->showAmberOutline;
+                    redEnabled = shared->showRedOutline;
+                }
+                updateOverlay(*shared);
+                std::wcout << L"Config reloaded (" << blacklistCount
+                           << L" blacklist entries, amber "
+                           << (amberEnabled ? L"on" : L"off")
+                           << L", red " << (redEnabled ? L"on" : L"off")
+                           << L')' << std::endl;
+            }
+            break;
+        case kTrayMenuToggleAmberOutline:
+        case kTrayMenuToggleRedOutline:
+            if (shared) {
+                std::wstring settingsPath;
+                OverlaySettings settings;
+                {
+                    std::lock_guard lock(shared->mtx);
+                    if (LOWORD(wParam) == kTrayMenuToggleAmberOutline)
+                        shared->showAmberOutline = !shared->showAmberOutline;
+                    else
+                        shared->showRedOutline = !shared->showRedOutline;
+                    settingsPath = shared->settingsPath;
+                    settings.showAmberOutline = shared->showAmberOutline;
+                    settings.showRedOutline = shared->showRedOutline;
+                }
+
+                if (!saveOverlaySettings(settingsPath, settings)) {
+                    std::wcerr << L"Failed to save overlay settings" << std::endl;
+                }
+                if (std::filesystem::exists(settingsPath)) {
+                    auto wt = std::filesystem::last_write_time(settingsPath);
+                    std::lock_guard lock(shared->mtx);
+                    shared->settingsWriteTime = wt;
+                }
+                updateOverlay(*shared);
             }
             break;
         case kTrayMenuSelfDestruct:
@@ -1794,9 +2003,16 @@ LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
         return 0;
     case WM_DISPLAYCHANGE:
-        if (shared && shared->overlayShowing != PresenceLevel::kNone) {
-            positionOverlay(hwnd);
-            InvalidateRect(hwnd, nullptr, TRUE);
+        if (shared) {
+            PresenceLevel overlayShowing;
+            {
+                std::lock_guard lock(shared->mtx);
+                overlayShowing = shared->overlayShowing;
+            }
+            if (overlayShowing != PresenceLevel::kNone) {
+                positionOverlay(hwnd);
+                InvalidateRect(hwnd, nullptr, TRUE);
+            }
         }
         return 0;
     case WM_PAINT: {
@@ -1907,6 +2123,9 @@ void performSelfDestruct(SharedState& shared) {
     if (!shared.blacklistPath.empty()) {
         std::filesystem::remove(shared.blacklistPath, ec);
     }
+    if (!shared.settingsPath.empty()) {
+        std::filesystem::remove(shared.settingsPath, ec);
+    }
 
     // 6. Schedule deletion of exe + directory after process exits
     std::wcout << L"Scheduling file deletion..." << std::endl;
@@ -2005,9 +2224,16 @@ int wmain(int argc, wchar_t* argv[]) {
     SharedState shared;
     shared.sessionId = sessionId;
     shared.blacklistPath = expandEnv(blacklistPath);
+    shared.settingsPath = deriveSettingsPath(shared.blacklistPath);
     shared.blacklist = loadBlacklist(shared.blacklistPath);
+    auto overlaySettings = loadOverlaySettings(shared.settingsPath);
+    shared.showAmberOutline = overlaySettings.showAmberOutline;
+    shared.showRedOutline = overlaySettings.showRedOutline;
     if (std::filesystem::exists(shared.blacklistPath)) {
         shared.blacklistWriteTime = std::filesystem::last_write_time(shared.blacklistPath);
+    }
+    if (std::filesystem::exists(shared.settingsPath)) {
+        shared.settingsWriteTime = std::filesystem::last_write_time(shared.settingsPath);
     }
 
     // Step 5: Create overlay window
