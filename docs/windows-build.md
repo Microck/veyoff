@@ -60,7 +60,9 @@ Or with a custom blacklist path:
 2. Have Veyon running (master connects as usual)
 3. Press `Ctrl+Alt+F` -- console prints `FROZEN`
 4. Change something on screen -- master should still see the old frame
-5. Press `Ctrl+Alt+F` again -- console prints `LIVE`, master sees real desktop
+5. If `Show Blue Outline` is enabled in the tray menu, a thin light blue inside
+   outline appears while frozen
+6. Press `Ctrl+Alt+F` again -- console prints `LIVE`, master sees real desktop
 
 ### 2. Master Presence Overlay
 
@@ -71,6 +73,13 @@ Or with a custom blacklist path:
 4. When the master disconnects, the outline disappears
 5. Uncheck `Show Amber Outline` or `Show Red Outline` in the tray menu and
    verify each warning can be hidden independently
+
+### 2a. Freeze Outline Toggle
+
+1. Freeze the screen with `Ctrl+Alt+F`
+2. Verify the light blue inside outline appears
+3. Uncheck `Show Blue Outline` in the tray menu
+4. Verify the freeze state remains active but the blue outline disappears
 
 ### 3. Window Filtering
 

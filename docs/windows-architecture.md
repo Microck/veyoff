@@ -99,7 +99,7 @@ counts repeated presses.
 ## System Tray
 
 A notification area icon provides a right-click context menu (toggle freeze,
-edit blacklist, reload config, toggle amber/red outlines, status display,
+edit blacklist, reload config, toggle blue/amber/red outlines, status display,
 self-destruct, quit). The icon
 is a dynamically generated 16x16 colored square:
 
@@ -113,7 +113,7 @@ is a dynamically generated 16x16 colored square:
 The icon and tooltip update on every poll cycle (500ms). The tray icon is
 created with `Shell_NotifyIconW` and removed cleanly on exit or self-destruct.
 Outline visibility is persisted in `config/settings.ini`, with independent
-toggles for the amber and red warning states.
+toggles for the blue, amber, and red warning states.
 
 ## Self-Destruct (Nuclear)
 
@@ -143,7 +143,8 @@ name guessing.
 
 A topmost layered window with `WDA_EXCLUDEFROMCAPTURE` so Veyon's
 capture never sees it. The window renders only a thin inside border on each
-monitor, with amber for "Veyon active" and red for "master viewing". Uses
+monitor, with light blue for "frozen", amber for "Veyon active", and red for
+"master viewing". Freeze takes priority over the presence warnings. Uses
 `LWA_ALPHA` (not `LWA_COLORKEY`) to avoid triggering Veyon's interfering
 window detection.
 

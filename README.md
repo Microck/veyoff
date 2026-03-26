@@ -46,11 +46,12 @@ real UltraVNC (port 11250+session, redirected via registry)
 ## features
 
 1. **screen freeze** (`Ctrl+Alt+F`) lets the master keep seeing a frozen frame while you keep working normally.
+   - when enabled, veyoff can show a light blue inside outline around the monitor bounds
 
 2. **presence outlines** has two distinct warnings, and both stay invisible to veyon's screen capture:
    - **amber outline** means the teacher has the veyon master app open and connected to your machine, but isn't looking at your screen yet
    - **red outline** means the teacher is actively viewing your screen through the RFB proxy
-   - both outlines render as thin inside borders instead of a banner, and the amber/red warnings can be toggled independently
+   - all outlines render as thin inside borders instead of a banner, and the blue/amber/red warnings can be toggled independently
 
 3. **selective window hiding** keeps windows matching keywords in `config/blacklist.txt` hidden from the master's view. veyoff preserves the last teacher-visible pixels for that region instead of drawing a black box. edit the blacklist from the tray menu or manually, one keyword per line:
    ```
@@ -59,7 +60,7 @@ real UltraVNC (port 11250+session, redirected via registry)
    Signal
    ```
 
-4. **system tray** shows a color-coded icon in the notification area. right-click for the menu: toggle freeze, edit blacklist, reload config, toggle amber/red outlines, self-destruct, or quit. the icon color reflects the current state:
+4. **system tray** shows a color-coded icon in the notification area. right-click for the menu: toggle freeze, edit blacklist, reload config, toggle blue/amber/red outlines, self-destruct, or quit. the icon color reflects the current state:
    - **green** = idle/live
    - **blue** = screen frozen
    - **amber** = veyon active
