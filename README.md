@@ -19,6 +19,8 @@
 
 veyoff sits between Veyon's internal proxy and the UltraVNC screen capture engine on the local machine. it forwards framebuffer data transparently in normal mode, and intercepts it when freeze or window hiding is active. the teacher sees nothing unusual; just a brief 1-2s connection blip during setup. if you're my teacher seeing this, hi please dont snitch.
 
+**contents:** [how it works](#how-it-works) · [features](#features) · [quickstart](#quickstart) · [how the proxy works](#how-the-proxy-works) · [requirements](#requirements) · [docs](#docs) · [project layout](#project-layout) · [ethical notice](#ethical-notice) · [license](#license)
+
 ---
 
 ## how it works
@@ -77,6 +79,14 @@ real UltraVNC (port 11250+session, redirected via registry)
 
 6. **clean quit** (`Ctrl+Alt+Q`) restores veyon config and exits normally.
 
+### keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Alt+F` | Toggle screen freeze |
+| `Ctrl+Alt+Q` | Clean quit (restore + exit) |
+| `Ctrl+Alt+X` × 5 | Self-destruct (panic button, must press 5 times in 2s) |
+
 ---
 
 ## quickstart
@@ -109,11 +119,17 @@ veyoff automatically:
 
 press `Ctrl+Alt+Q` to quit. veyoff restores the original port and restarts the service. right-click the tray icon for additional options.
 
-### custom blacklist
+### command line flags
+
+| Flag | Description |
+|------|-------------|
+| `--blacklist <path>` | Load a custom blacklist file (one window title keyword per line) |
 
 ```powershell
 .\build\Release\veyoff-windows.exe --blacklist C:\path\to\blacklist.txt
 ```
+
+without `--blacklist`, veyoff looks for `config/blacklist.txt` relative to the executable.
 
 ---
 
@@ -152,7 +168,7 @@ the master's VNC viewer has no way to tell the difference because it receives va
 ```
 veyoff/
 ├── src/windows/
-│   └── veyoff-windows.cpp    # single-file implementation (~2000 lines)
+│   └── veyoff-windows.cpp    # single-file implementation (~2300 lines)
 ├── config/
 │   └── blacklist.txt          # window title keywords to hide (one per line)
 ├── toolchains/
