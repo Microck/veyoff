@@ -21,6 +21,22 @@ veyoff sits between Veyon's internal proxy and the UltraVNC screen capture engin
 
 ---
 
+## table of contents
+
+- [how it works](#how-it-works)
+- [features](#features)
+- [hotkey reference](#hotkey-reference)
+- [quickstart](#quickstart)
+- [how the proxy works](#how-the-proxy-works)
+- [requirements](#requirements)
+- [docs](#docs)
+- [project layout](#project-layout)
+- [troubleshooting](#troubleshooting)
+- [ethical notice](#ethical-notice)
+- [license](#license)
+
+---
+
 ## how it works
 
 ```
@@ -79,7 +95,25 @@ real UltraVNC (port 11250+session, redirected via registry)
 
 ---
 
+## hotkey reference
+
+| hotkey | action | notes |
+|--------|--------|-------|
+| `Ctrl+Alt+F` | toggle screen freeze | master sees the last frozen frame |
+| `Ctrl+Alt+Q` | clean quit | restores registry and exits |
+| `Ctrl+Alt+X` ×5 | self-destruct | must press 5 times within 2 seconds |
+
+---
+
 ## quickstart
+
+### prerequisites
+
+- windows 10 or later
+- administrator privileges (needed for registry and service control)
+- [veyon](https://veyon.io/) installed and running
+- visual studio 2022 or mingw-w64 with c++20 support
+- cmake 3.21+
 
 ### build (visual studio 2022 + cmake)
 
@@ -151,18 +185,40 @@ the master's VNC viewer has no way to tell the difference because it receives va
 
 ```
 veyoff/
-├── src/windows/
-│   └── veyoff-windows.cpp    # single-file implementation (~2000 lines)
+├── src/
+│   ├── windows/
+│   │   └── veyoff-windows.cpp    # windows native implementation (~2000 lines)
+│   └── veyoff/                   # python capture/overlay/hotkey modules
+│       ├── main.py               # capture loop entry point
+│       ├── capture.py            # screen capture via GDI
+│       ├── filter.py             # window blacklist matching
+│       ├── daemon.py             # daemon mode support
+│       ├── overlay.py            # presence detection & outlines
+│       └── hotkey.py             # keyboard hotkey management
 ├── config/
-│   └── blacklist.txt          # window title keywords to hide (one per line)
+│   └── blacklist.txt             # window title keywords to hide (one per line)
 ├── toolchains/
-│   └── windows-mingw64.cmake  # cross-compilation toolchain (linux → windows)
+│   └── windows-mingw64.cmake     # cross-compilation toolchain (linux → windows)
 ├── docs/
 │   ├── windows-architecture.md
 │   ├── windows-build.md
-│   └── windows-reverse-engineering.md
+│   ├── windows-reverse-engineering.md
+│   └── PROGRESS.md               # development progress tracker
 └── CMakeLists.txt
 ```
+
+---
+
+## troubleshooting
+
+| problem | solution |
+|---------|----------|
+| build fails with `veyoff-windows builds only on Windows` | you're building on linux. use the mingw-w64 toolchain: `cmake -B build --toolchain toolchains/windows-mingw64.cmake` |
+| veyoff exits immediately | run as administrator. veyoff needs admin rights for registry access and service control. |
+| veyon service doesn't restart | check that veyon is installed and the service name matches `VeyonService`. stop/start manually with `net stop VeyonService && net start VeyonService`. |
+| tray icon not visible | windows may hide new tray icons. check the system tray overflow area (↑ arrow) and drag veyoff to the visible area. |
+| frozen screen shows artifacts | the frozen frame is the last complete framebuffer update. any rapid changes right before freezing may not be fully captured. |
+| blacklist not matching | keywords are matched as substrings against window titles (case-insensitive). check `config/blacklist.txt` and reload from the tray menu. |
 
 ---
 
