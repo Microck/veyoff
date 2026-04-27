@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -13,7 +12,6 @@ from .filter import WindowFilter
 @dataclass
 class CachedFrame:
     frame: Image.Image
-    timestamp: float
 
 
 class ScreenCapture:
@@ -38,7 +36,7 @@ class ScreenCapture:
         return frame
 
     def save_frame_to_buffer(self, frame: Image.Image) -> None:
-        self._cached_frame = CachedFrame(frame=frame.copy(), timestamp=time.time())
+        self._cached_frame = CachedFrame(frame=frame.copy())
 
     def get_cached_frame(self) -> Optional[Image.Image]:
         if self._cached_frame is None:
@@ -51,22 +49,3 @@ class ScreenCapture:
             if cached is not None:
                 return cached
         return self.capture_screen()
-
-
-_default_capture = ScreenCapture()
-
-
-def capture_screen() -> Image.Image:
-    return _default_capture.capture_screen()
-
-
-def save_frame_to_buffer(frame: Image.Image) -> None:
-    _default_capture.save_frame_to_buffer(frame)
-
-
-def get_cached_frame() -> Optional[Image.Image]:
-    return _default_capture.get_cached_frame()
-
-
-def get_output_frame(frozen: bool) -> Image.Image:
-    return _default_capture.get_output_frame(frozen)

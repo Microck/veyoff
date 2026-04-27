@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
 from PIL import Image, ImageDraw
+
+logger = logging.getLogger(__name__)
 
 try:
     from Xlib import X, display
@@ -39,6 +42,7 @@ def _walk_windows(node, items: list[WindowInfo]) -> None:
     try:
         children = node.query_tree().children
     except Exception:
+        logger.warning("Failed to query window tree", exc_info=True)
         return
 
     for child in children:
